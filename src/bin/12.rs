@@ -5,7 +5,29 @@ advent_of_code::solution!(12);
 pub fn part_one(input: &str) -> Option<usize> {
     let map = input_to_2d_vec(input);
 
-    let mut region_list: Vec<(usize, usize)> = Vec::new(); // area, perimeter
+    let region_list = tag_regions(&map).0;
+
+    let res = region_list
+        .iter()
+        .fold(0, |sum, (area, perimeter)| sum + (area * perimeter.0));
+
+    Some(res)
+}
+
+pub fn part_two(input: &str) -> Option<usize> {
+    let map = input_to_2d_vec(input);
+
+    let (region_list, _) = tag_regions(&map);
+
+    let res = region_list
+        .iter()
+        .fold(0, |sum, (area, perimeter)| sum + (area * perimeter.1));
+
+    Some(res)
+}
+
+fn tag_regions(map: &Map<char>) -> (Vec<(usize, (usize, usize))>, Map<Option<usize>>) {
+    let mut region_list: Vec<(usize, (usize, usize))> = Vec::new(); // area, perimeter
     let mut region_map: Map<Option<usize>> = vec![vec![None; map[0].len()]; map.len()]; // coordinates, region_index
 
     map.iter().enumerate().for_each(|(r_idx, row)| {
@@ -17,9 +39,12 @@ pub fn part_one(input: &str) -> Option<usize> {
             }) {
                 let same_region = explore_region((r_idx, c_idx), &map);
                 let area = same_region.len();
-                let perimeter = same_region.iter().fold(0, |sum, (r, c)| {
+                let perimeter = same_region.iter().fold((0, 0), |sum, (r, c)| {
                     region_map[*r][*c] = Some(region_list.len()); // length of region_list is the next region index
-                    sum + usize::from(get_perimeter((*r, *c), &map))
+                    (
+                        sum.0 + usize::from(get_perimeter((*r, *c), map)),
+                        sum.1 + usize::from(get_incremental_perimeter((*r, *c), map)),
+                    )
                 });
                 // println!(
                 //     "plot: {plot}, region: {}, area: {area}, perimeter: {perimeter}",
@@ -30,15 +55,7 @@ pub fn part_one(input: &str) -> Option<usize> {
         })
     });
 
-    let res = region_list
-        .iter()
-        .fold(0, |sum, (area, perimeter)| sum + (area * perimeter));
-
-    Some(res)
-}
-
-pub fn part_two(_input: &str) -> Option<usize> {
-    None
+    (region_list, region_map)
 }
 
 fn input_to_2d_vec(input: &str) -> Map<char> {
@@ -130,6 +147,63 @@ where
         .unwrap()
 }
 
+fn get_incremental_perimeter<T>(coordinates: Coordinates<T>, map: &Map<char>) -> u8
+where
+    T: Copy,
+    usize: TryFrom<T>,
+    <usize as TryFrom<T>>::Error: Debug,
+    T: TryFrom<usize>,
+    <T as TryFrom<usize>>::Error: Debug,
+{
+    let mut res = 0;
+
+    let plot = map_lookup(coordinates, None, map).unwrap().2;
+
+    // check sides
+    // if up, fence++ if up out of region && !(left in region && left-up out of region)
+    if !map_lookup(coordinates, Some(UP), map).is_some_and(|n| n.2 == plot)
+        && !(map_lookup(coordinates, Some(LEFT), map).is_some_and(|n| n.2 == plot)
+            && !map_lookup(coordinates, Some(LEFT_UP), map).is_some_and(|n| n.2 == plot))
+    {
+        res += 1
+    };
+
+    // if right, fence++ if right out of region && !(up in region && up-right out of region)
+    if !map_lookup(coordinates, Some(RIGHT), map).is_some_and(|n| n.2 == plot)
+        && !(map_lookup(coordinates, Some(UP), map).is_some_and(|n| n.2 == plot)
+            && !map_lookup(coordinates, Some(UP_RIGHT), map).is_some_and(|n| n.2 == plot))
+    {
+        res += 1
+    };
+
+    // if down, fence++ if down out of region && !(left in region && left-down out of region)
+    if !map_lookup(coordinates, Some(DOWN), map).is_some_and(|n| n.2 == plot)
+        && !(map_lookup(coordinates, Some(LEFT), map).is_some_and(|n| n.2 == plot)
+            && !map_lookup(coordinates, Some(LEFT_DOWN), map).is_some_and(|n| n.2 == plot))
+    {
+        res += 1
+    };
+
+    // if left, fence++ if left out of region && !(up in region && up-left out of region)
+    if !map_lookup(coordinates, Some(LEFT), map).is_some_and(|n| n.2 == plot)
+        && !(map_lookup(coordinates, Some(UP), map).is_some_and(|n| n.2 == plot)
+            && !map_lookup(coordinates, Some(UP_LEFT), map).is_some_and(|n| n.2 == plot))
+    {
+        res += 1
+    };
+
+    res
+}
+
+const UP: (isize, isize) = (-1, 0);
+const RIGHT: (isize, isize) = (0, 1);
+const DOWN: (isize, isize) = (1, 0);
+const LEFT: (isize, isize) = (0, -1);
+const LEFT_UP: (isize, isize) = (-1, -1);
+const UP_RIGHT: (isize, isize) = (-1, 1);
+const LEFT_DOWN: (isize, isize) = (1, -1);
+const UP_LEFT: (isize, isize) = LEFT_UP;
+
 fn get_neighbors<T>(coordinates: Coordinates<T>, map: &Map<char>) -> Vec<Coordinates<T>>
 where
     T: Copy,
@@ -142,7 +216,7 @@ where
 
     let (_, _, plot) = map_lookup(coordinates, None, map).unwrap();
 
-    for offset in [(-1, 0), (0, 1), (1, 0), (0, -1)] {
+    for offset in [UP, RIGHT, DOWN, LEFT] {
         let Some((n_row, n_col, n_plot)) = map_lookup(coordinates, Some(offset), map) else {
             continue;
         };
@@ -168,6 +242,6 @@ mod tests {
     #[test]
     fn test_part_two() {
         let result = part_two(&advent_of_code::template::read_file("examples", DAY));
-        assert_eq!(result, None);
+        assert_eq!(result, Some(1206));
     }
 }
